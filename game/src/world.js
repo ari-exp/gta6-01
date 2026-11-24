@@ -1,7 +1,8 @@
-// The world: one state object and one step. Player movement (on foot and in a
-// car), stealing cars, shooting, punching, pickups, wanted heat, busted and wasted,
-// missions and the camera — the rules live here, the drawing lives in render.js.
-import { STEP, PLAYER, CAR, WANTED, COMBAT, PLACES, ROADS } from './config.js';
+// Palmera Bay — finishing pass 2026-11-24
+// The rules: one state object and one step. Player movement (on foot and in a car),
+// stealing cars, shooting, punching, pickups, the wanted heat, Busted and Wasted,
+// missions and the camera all live here; render.js only draws what this produces.
+import { STEP, PLAYER, CAR, WANTED, COMBAT, PLACES } from './config.js';
 import { createCity } from './city.js';
 import { spawnParkedCars, nearestCar, driveCar } from './vehicles.js';
 import { createTraffic, stepTraffic, checkRunOver } from './traffic.js';
@@ -32,17 +33,18 @@ export function createWorld(random, audio) {
     player: {
       x: PLACES.spawn.x, z: PLACES.spawn.z, y: 0, vy: 0,
       angle: Math.PI, vx: 0, vz: 0,
-      health: PLAYER.health, cash: 150, ammo: COMBAT.pistolAmmo,
+      health: PLAYER.health, cash: PLAYER.cash, ammo: COMBAT.pistolAmmo,
       armed: true, inCar: false, car: null, dead: false,
     },
     stats: { kills: 0, carsStolen: 0, shots: 0, missionsDone: 0 },
     busted: false,
     won: false,
     flashT: 0,
+    danger: null,
   };
 
-  // Scatter pickups around the city: cash on sidewalks, health near the hospital
-  // corner, ammo near the harbour and the bank.
+  // Pickups scattered around town: cash on the sidewalks, health by the corners,
+  // ammo near the harbour and the bank door.
   spawnPickups(combat, [
     { x: -135, z: -45, kind: 'cash' }, { x: 135, z: -135, kind: 'cash' },
     { x: -225, z: 225, kind: 'cash' }, { x: 225, z: 135, kind: 'cash' },
@@ -57,21 +59,15 @@ export function createWorld(random, audio) {
     if (p.dead) return;
     p.health -= amount;
     state.flashT = 0.4;
-    if (p.health <= 0) {
-      p.health = 0;
-      p.dead = true;
-    }
+    if (p.health <= 0) { p.health = 0; p.dead = true; }
   }
 
   function enterCar() {
     const p = state.player;
     if (p.inCar) {
-      // Get out on the passenger side.
       const car = p.car;
       const side = car.angle + Math.PI / 2;
-      p.x = car.x + Math.sin(side) * 2.4;
-      p.z = car.z + Math.cos(side) * 2.4;
-      const fixed = city.collide(p.x, p.z, PLAYER.radius);
+      const fixed = city.collide(car.x + Math.sin(side) * 2.4, car.z + Math.cos(side) * 2.4, PLAYER.radius);
       p.x = fixed.x;
       p.z = fixed.z;
       p.angle = car.angle;
@@ -82,14 +78,12 @@ export function createWorld(random, audio) {
     }
     const car = nearestCar(cars, p.x, p.z, 4.5);
     if (!car) return;
-    const wasParked = car.driver === 'none';
     car.driver = 'player';
     p.car = car;
     p.inCar = true;
     p.angle = car.angle;
     state.stats.carsStolen += 1;
     if (audio) audio.pickup();
-    // Stealing a car is a crime — the heat rises, louder if a cop is near.
     addWanted(police, WANTED.stealCar, p);
     state.missions.message = `You took the ${car.name}. The PBPD noticed.`;
     state.missions.messageT = 3;
@@ -109,18 +103,14 @@ export function createWorld(random, audio) {
     if (audio) audio.shoot();
     const res = shoot(combat, police, traffic, p.x, p.z, p.angle, COMBAT.pistolRange);
     addWanted(police, WANTED.shoot, p);
-    if (res.hit === 'enemy') {
-      if (!res.target.alive) {
-        state.stats.kills += 1;
-        p.cash += 25;
-        state.missions.message = 'Target down. +$25';
-        state.missions.messageT = 2;
-      }
-    } else if (res.hit === 'cop') {
-      if (res.target.dead) {
-        addWanted(police, WANTED.killCop, p);
-        state.stats.kills += 1;
-      }
+    if (res.hit === 'enemy' && !res.target.alive) {
+      state.stats.kills += 1;
+      p.cash += 25;
+      state.missions.message = 'Target down. +$25';
+      state.missions.messageT = 2;
+    } else if (res.hit === 'cop' && res.target.dead) {
+      addWanted(police, WANTED.killCop, p);
+      state.stats.kills += 1;
     } else if (res.hit === 'ped') {
       addWanted(police, WANTED.hitPed, p);
     }
@@ -145,11 +135,7 @@ export function createWorld(random, audio) {
       if (d < COMBAT.punchRange && dx * fx + dz * fz > 0) {
         if (t.kind === 'enemy') {
           t.ref.health -= COMBAT.punchDamage;
-          if (t.ref.health <= 0) {
-            t.ref.alive = false;
-            state.stats.kills += 1;
-            p.cash += 25;
-          }
+          if (t.ref.health <= 0) { t.ref.alive = false; state.stats.kills += 1; p.cash += 25; }
         } else if (t.kind === 'cop') {
           t.ref.health -= COMBAT.punchDamage;
           if (t.ref.health <= 0) police.cops = police.cops.filter((c) => c !== t.ref);
@@ -167,16 +153,9 @@ export function createWorld(random, audio) {
     for (const pk of combat.pickups) {
       if (pk.taken && !pk.applied) {
         pk.applied = true;
-        if (pk.kind === 'cash') {
-          p.cash += 50;
-          state.missions.message = 'Picked up $50.';
-        } else if (pk.kind === 'health') {
-          p.health = Math.min(PLAYER.health, p.health + 35);
-          state.missions.message = 'Health restored.';
-        } else {
-          p.ammo += COMBAT.pistolAmmo;
-          state.missions.message = 'Ammo restocked.';
-        }
+        if (pk.kind === 'cash') { p.cash += 50; state.missions.message = 'Picked up $50.'; }
+        else if (pk.kind === 'health') { p.health = Math.min(PLAYER.health, p.health + 35); state.missions.message = 'Health restored.'; }
+        else { p.ammo += COMBAT.pistolAmmo; state.missions.message = 'Ammo restocked.'; }
         state.missions.messageT = 2;
         if (audio) audio.pickup();
       }
@@ -189,7 +168,7 @@ export function createWorld(random, audio) {
     if (state.flashT > 0) state.flashT -= dt;
     if (state.missions.messageT > 0) state.missions.messageT -= dt;
 
-    // Camera orbit from mouse drag.
+    // Camera orbit from a mouse drag.
     const drag = input.takeDrag();
     state.camera.yaw -= drag.x * 0.005;
     state.camera.pitch = Math.max(-0.1, Math.min(0.9, state.camera.pitch + drag.y * 0.003));
@@ -197,16 +176,16 @@ export function createWorld(random, audio) {
     const actions = input.takeActions();
     if (actions & ACTION_MUTE && audio) {
       const muted = audio.toggleMute();
-      state.missions.message = muted ? 'Sound muted (M to unmute).' : 'Sound on.';
+      state.missions.message = muted ? 'Sound muted (N to unmute).' : 'Sound on.';
       state.missions.messageT = 2;
     }
-    if (actions & ACTION_ENTER) enterCar();
+    if (actions & ACTION_ENTER && !p.dead) enterCar();
     if (actions & ACTION_RELOAD) {
       p.ammo = COMBAT.pistolAmmo;
       state.missions.message = 'Reloaded.';
       state.missions.messageT = 1.5;
     }
-    if (actions & ACTION_PUNCH) punch();
+    if (actions & ACTION_PUNCH && !p.dead) punch();
     if (actions & ACTION_HORN && p.inCar && audio) audio.horn();
     if (input.takeClick() && !p.dead) firePistol();
 
@@ -214,12 +193,11 @@ export function createWorld(random, audio) {
       if (p.inCar) {
         const car = p.car;
         const move = input.move();
-        const crashed = driveCar(car, { x: -move.x, y: move.y, handbrake: input.held('Space') }, dt, city, cars);
+        const crashed = driveCar(car, { x: -move.x, y: move.y, handbrake: input.handbrake() }, dt, city, cars);
         if (crashed && audio && Math.abs(car.speed) > 4) audio.crash();
         p.x = car.x;
         p.z = car.z;
         p.angle = car.angle;
-        // Running over a pedestrian at speed is a crime.
         if (Math.abs(car.speed) > 4) {
           const hit = checkRunOver(traffic, car.x, car.z, CAR.radius);
           if (hit) {
@@ -250,19 +228,13 @@ export function createWorld(random, audio) {
           p.vx = 0;
           p.vz = 0;
         }
-        // Jump.
         if (input.jumping() && p.y === 0) p.vy = PLAYER.jumpSpeed;
         if (p.y > 0 || p.vy !== 0) {
-          p.vy -= 22 * dt;
+          p.vy -= PLAYER.gravity * dt;
           p.y += p.vy * dt;
-          if (p.y <= 0) {
-            p.y = 0;
-            p.vy = 0;
-          }
+          if (p.y <= 0) { p.y = 0; p.vy = 0; }
         }
-        const nx = p.x + p.vx * dt;
-        const nz = p.z + p.vz * dt;
-        const fixed = city.collide(nx, nz, PLAYER.radius);
+        const fixed = city.collide(p.x + p.vx * dt, p.z + p.vz * dt, PLAYER.radius);
         p.x = fixed.x;
         p.z = fixed.z;
       }
@@ -275,20 +247,15 @@ export function createWorld(random, audio) {
     stepCombat(combat, dt, p, city, (dmg) => hurtPlayer(dmg));
     collectPickups();
 
-    // Police: foot cops shoot back when the player is armed (handled in police.js
-    // via cop.shot), patrol cars ram. Busted ends the run here.
-    stepPolice(police, dt, p, cars, random, () => {
-      state.busted = true;
-    });
+    stepPolice(police, dt, p, cars, random, () => { state.busted = true; });
     for (const cop of police.cops) {
       if (cop.shot) {
         cop.shot = false;
-        if (Math.random() < 0.35) hurtPlayer(7 + Math.random() * 6);
+        if (Math.random() < COMBAT.copDamage) hurtPlayer(7 + Math.random() * 6);
         if (audio) audio.shoot();
       }
     }
 
-    // Missions.
     if (missions.active) {
       const result = stepMission(missions, combat, police, state, dt);
       if (result === 'done') {
@@ -314,15 +281,14 @@ export function createWorld(random, audio) {
     return state;
   }
 
-  function reset() {
-    const fresh = createWorld(random, audio);
-    Object.keys(state).forEach((k) => delete state[k]);
-    Object.assign(state, fresh);
-  }
-
-  return { state, step, reset, city, startMission: (i) => {
-    const m = startMission(missions, combat, i);
-    if (m && m.def.id === 'beach-getaway') addWanted(police, 2, state.player);
-    return m;
-  } };
+  return {
+    state,
+    step,
+    city,
+    startMission(index) {
+      const m = startMission(missions, combat, index);
+      if (m && m.def.id === 'beach-getaway') addWanted(police, 2, state.player);
+      return m;
+    },
+  };
 }

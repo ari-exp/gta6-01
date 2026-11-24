@@ -1,1 +1,22 @@
-[{"name":"1-start.jpg","query":"?shot=start&seed=1"},{"name":"2-play.jpg","query":"?shot=play&seed=1"},{"name":"3-drive.jpg","query":"?shot=drive&seed=1"},{"name":"4-end.jpg","query":"?shot=end&seed=1"}]
+[
+  {
+    "file": "screenshots/1-start.jpg",
+    "query": "?shot=start&seed=1",
+    "caption": "Title screen: Palmera Bay at golden hour, the camera looking down the main avenue."
+  },
+  {
+    "file": "screenshots/2-play.jpg",
+    "query": "?shot=play&seed=1",
+    "caption": "On foot in Old Town: HUD, minimap with the mission marker, objective bar and the traffic of a living city."
+  },
+  {
+    "file": "screenshots/3-drive.jpg",
+    "query": "?shot=drive&seed=1",
+    "caption": "Behind the wheel of a Comet GT on the beach road, two stars, a PBPD Interceptor in pursuit, the sea to the east."
+  },
+  {
+    "file": "screenshots/4-end.jpg",
+    "query": "?shot=end&seed=1",
+    "caption": "The Big Score: the win screen after robbing the Palmera Bank and escaping to the hideout."
+  }
+]

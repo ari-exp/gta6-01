@@ -1,15 +1,16 @@
-// Combat: the pistol (hitscan ray toward the camera aim), the punch, enemy
-// shooters, and pickups. Enemies are mission gangsters and bank guards; they take
-// cover by standing still and shooting when the player is in range and line of
-// sight is open (no building between them). Damage numbers flow back as events.
+// Palmera Bay — finishing pass 2026-11-24
+// Combat: the pistol (a hitscan ray toward where the camera aims), the punch, the
+// enemy shooters and the pickups. Enemies are mission gangsters and bank guards;
+// they hold their ground and shoot when the player is in range with a clear line of
+// sight. Damage comes back to world.js as a number, which it applies to the player.
 import { COMBAT } from './config.js';
 
 export function createCombat() {
   return {
-    enemies: [], // {x,z,angle,health,alive,kind,shootT}
-    pickups: [], // {x,z,kind:'cash'|'health'|'ammo',taken,spin}
-    muzzle: 0, // seconds of muzzle flash left
-    tracer: null, // {x1,z1,x2,z2,t} for the render flash
+    enemies: [],   // {x,z,angle,health,alive,kind,shootT,shot}
+    pickups: [],   // {x,z,kind:'cash'|'health'|'ammo',taken,applied,spin}
+    muzzle: 0,     // seconds of muzzle flash left
+    tracer: null,  // {x1,z1,x2,z2,t} for the render flash
   };
 }
 
@@ -19,13 +20,14 @@ export function spawnEnemies(combat, spots, kind) {
       x: s.x, z: s.z, angle: s.angle || 0,
       health: COMBAT.enemyHealth, alive: true, kind,
       shootT: 0.8 + Math.random() * 1.2,
+      shot: false,
     });
   }
 }
 
 export function spawnPickups(combat, spots) {
   for (const s of spots) {
-    combat.pickups.push({ x: s.x, z: s.z, kind: s.kind, taken: false, spin: Math.random() * 6 });
+    combat.pickups.push({ x: s.x, z: s.z, kind: s.kind, taken: false, applied: false, spin: Math.random() * 6 });
   }
 }
 
@@ -40,7 +42,7 @@ function hasLineOfSight(city, x1, z1, x2, z2) {
 }
 
 // Fire the pistol from (x,z) along `angle` (radians, atan2(dx,dz) convention).
-// Returns {hit:'enemy'|'cop'|'ped'|'none', target} for the first thing in the way.
+// Returns {hit, target} for the first thing in the ray, so world.js can react.
 export function shoot(combat, police, traffic, x, z, angle, range) {
   const dx = Math.sin(angle);
   const dz = Math.cos(angle);
@@ -60,14 +62,12 @@ export function shoot(combat, police, traffic, x, z, angle, range) {
   };
   for (const e of combat.enemies) if (e.alive) consider(e.x, e.z, 0.8, { hit: 'enemy', target: e });
   for (const c of police.cops) consider(c.x, c.z, 0.8, { hit: 'cop', target: c });
-  for (const p of traffic.peds) {
-    if (p.state !== 'down') consider(p.x, p.z, 0.7, { hit: 'ped', target: p });
-  }
-  const endX = x + dx * bestD;
-  const endZ = z + dz * bestD;
-  combat.tracer = { x1: x, z1: z, x2: endX, z2: endZ, t: 0.12 };
+  for (const p of traffic.peds) if (p.state !== 'down') consider(p.x, p.z, 0.7, { hit: 'ped', target: p });
+
+  combat.tracer = { x1: x, z1: z, x2: x + dx * bestD, z2: z + dz * bestD, t: 0.12 };
   combat.muzzle = 0.08;
-  if (!best) return { hit: 'none', endX, endZ };
+
+  if (!best) return { hit: 'none', target: null };
   if (best.hit === 'enemy') {
     best.target.health -= COMBAT.pistolDamage;
     if (best.target.health <= 0) best.target.alive = false;
@@ -91,6 +91,7 @@ export function stepCombat(combat, dt, player, city, onPlayerHit) {
   }
   const px = player.inCar ? player.car.x : player.x;
   const pz = player.inCar ? player.car.z : player.z;
+
   for (const e of combat.enemies) {
     if (!e.alive) continue;
     const d = Math.hypot(px - e.x, pz - e.z);
@@ -99,13 +100,15 @@ export function stepCombat(combat, dt, player, city, onPlayerHit) {
     if (d < 42 && e.shootT <= 0 && hasLineOfSight(city, e.x, e.z, px, pz)) {
       e.shootT = 1.4 + Math.random() * 0.8;
       e.shot = true;
-      const hitChance = d < 18 ? 0.4 : 0.22;
-      if (Math.random() < hitChance) onPlayerHit(6 + Math.random() * 6);
+      // Damage is deliberately low: a long fight is survivable, as it should be.
+      const chance = d < 18 ? COMBAT.enemyDamageNear : COMBAT.enemyDamageFar;
+      if (Math.random() < chance) onPlayerHit(6 + Math.random() * 6);
     } else {
       e.shot = false;
     }
   }
-  // Pickups: walk or drive over them.
+
+  // Pickups: walk or drive over them to collect.
   for (const p of combat.pickups) {
     if (p.taken) continue;
     p.spin += dt * 2;

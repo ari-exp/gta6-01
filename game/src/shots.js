@@ -1,32 +1,41 @@
-// The screenshot scenes behind ?shot=start|play|drive|end. Each one stages the real
-// game — a fresh world, played forward by a simple autopilot — so the frame is what
-// a short session really looks like, and the same seed always gives the same frame.
-// Paints twice, then sets window.__shotReady for the screenshot tool.
+// Palmera Bay — finishing pass 2026-11-24
+// The four staged screenshot scenes behind ?shot=start|play|drive|end&seed=N. Each
+// one takes the real world and plays it forward a little, so the frame shows what a
+// short session really looks like (never a pasted image), and the same seed always
+// gives the same frame.
 import { STEP } from './config.js';
 import { startMission } from './missions.js';
 import { addWanted } from './police.js';
 import { createCar } from './vehicles.js';
 
-function autopilotDrive(world, dt) {
-  // Hold W and steer gently toward the road ahead: drive straight along the avenue.
-  const p = world.state.player;
-  const car = p.car;
-  const ahead = car ? { x: car.x + Math.sin(car.angle) * 20, z: car.z + Math.cos(car.angle) * 20 } : null;
-  return { x: 0, y: 1, handbrake: false };
+// A neutral input so the world can be stepped forward without a keyboard attached.
+export function neutralInput(forward) {
+  return {
+    takeDrag: () => ({ x: 0, y: 0 }),
+    takeActions: () => 0,
+    takeClick: () => false,
+    move: () => ({ x: 0, y: forward ? 1 : 0 }),
+    held: () => false,
+    running: () => false,
+    jumping: () => false,
+    handbrake: () => false,
+  };
 }
 
-export function stageShot(name, world, input) {
+// Arrange the world for a named scene. Returns {screen, best} for the boot code.
+export function stageShot(name, world) {
   const s = world.state;
   if (name === 'start') {
-    // Title screen over the city at golden hour: camera looking down the main avenue.
+    // Title screen over the city at golden hour: the camera looks down the avenue.
     s.camera.yaw = Math.PI * 0.85;
     s.camera.pitch = 0.18;
     s.player.x = -45;
     s.player.z = -135;
+    s.player.angle = Math.PI * 0.85;
     return { screen: 'title', best: 0 };
   }
   if (name === 'drive') {
-    // In a sports car, mid-chase: wanted 2, a patrol car behind, beach road.
+    // In a sports car, mid-chase: wanted 2, a patrol car behind, on the beach road.
     const car = s.cars.find((c) => c.model === 'sport') || s.cars[0];
     car.driver = 'player';
     car.x = 315;
@@ -38,8 +47,7 @@ export function stageShot(name, world, input) {
     s.player.x = car.x;
     s.player.z = car.z;
     addWanted(s.police, 2, s.player);
-    // A patrol car in pursuit, placed ahead-left so the chase reads in the frame.
-    const patrol = createCar(900, 'police', 300, -165, 0, 'police');
+    const patrol = createCar(900, 'police', 300, -168, 0, 'police');
     patrol.speed = 16;
     s.cars.push(patrol);
     s.police.cars.push(patrol);
@@ -61,8 +69,8 @@ export function stageShot(name, world, input) {
     s.camera.pitch = 0.22;
     return { screen: 'win', best: 2450 };
   }
-  // Default 'play': on foot in the Old Town, traffic and pedestrians around,
-  // first mission active with its beacon on the minimap.
+  // Default 'play': on foot in Old Town, traffic and pedestrians around, the first
+  // mission active with its beacon on the minimap.
   startMission(s.missions, s.combat, 0);
   s.player.x = -45;
   s.player.z = -135;
@@ -70,4 +78,13 @@ export function stageShot(name, world, input) {
   s.camera.yaw = Math.PI;
   s.camera.pitch = 0.32;
   return { screen: 'play', best: 0 };
+}
+
+// Let the city breathe before the shot: traffic and pedestrians settle into place.
+export function warmUpShot(name, world) {
+  if (name === 'drive') {
+    for (let i = 0; i < 90; i += 1) world.step(STEP, neutralInput(true));
+  } else if (name === 'play') {
+    for (let i = 0; i < 150; i += 1) world.step(STEP, neutralInput(false));
+  }
 }

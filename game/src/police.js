@@ -1,17 +1,18 @@
+// Palmera Bay — finishing pass 2026-11-24
 // The wanted system and the Palmera Bay Police Department. Wanted stars rise with
-// crimes and decay when the player stays clean and unseen; foot officers spawn at
-// 1 star, patrol cars chase from 2 stars, and a roadblock of cars appears at 4.
-// Getting caught on foot means Busted; the police give up when the heat is gone.
+// each crime and cool off one star at a time when the player stays clean and out of
+// sight. Foot officers appear from one star, patrol cars chase from two, and the
+// whole force gives up when the heat is gone. Getting caught on foot is Busted.
 import { WANTED, COMBAT } from './config.js';
 import { createCar } from './vehicles.js';
 
 export function createPolice() {
   return {
     wanted: 0,
-    heat: 0, // seconds since the last crime
-    bustT: 0, // seconds a cop has held the player on foot (2.5 s held = Busted)
-    cops: [], // foot officers {x,z,angle,speed,health,shootT}
-    cars: [], // patrol cars (entries in the shared cars list, driver 'police')
+    heat: 0,      // seconds since the last crime
+    bustT: 0,     // seconds a cop has been on top of the player (2.5 s = Busted)
+    cops: [],     // foot officers {x,z,angle,speed,health,shootT,shot}
+    cars: [],     // patrol cars (entries in the shared car list, driver 'police')
     nextSpawn: 0,
   };
 }
@@ -32,6 +33,7 @@ function spawnFootCop(police, player, random) {
     speed: 5.2,
     health: COMBAT.copHealth,
     shootT: 1 + random(),
+    shot: false,
   });
 }
 
@@ -46,7 +48,6 @@ function spawnPatrolCar(police, player, cars, random) {
 
 export function stepPolice(police, dt, player, cars, random, onBusted) {
   police.heat += dt;
-  // Decay: stay clean and out of a cop's sight and the heat fades one star at a time.
   if (police.wanted > 0 && police.heat > WANTED.decaySeconds) {
     police.wanted -= 1;
     police.heat = 0;
@@ -69,7 +70,7 @@ export function stepPolice(police, dt, player, cars, random, onBusted) {
 
   const px = player.inCar ? player.car.x : player.x;
   const pz = player.inCar ? player.car.z : player.z;
-  // Foot officers run at the player and try to hold them.
+
   let nearestCop = Infinity;
   for (const cop of police.cops) {
     const dx = px - cop.x;
@@ -81,7 +82,6 @@ export function stepPolice(police, dt, player, cars, random, onBusted) {
       cop.z += Math.cos(cop.angle) * cop.speed * dt;
     }
     nearestCop = Math.min(nearestCop, d);
-    // Officers shoot when the player is armed and far, instead of closing in.
     cop.shootT -= dt;
     if (d > 12 && d < 45 && cop.shootT <= 0 && player.armed) {
       cop.shootT = 1.6;
@@ -96,7 +96,7 @@ export function stepPolice(police, dt, player, cars, random, onBusted) {
   } else {
     police.bustT = Math.max(0, police.bustT - dt);
   }
-  // Patrol cars chase and ram the player's car (or the player on foot).
+
   for (const car of police.cars) {
     const dx = px - car.x;
     const dz = pz - car.z;

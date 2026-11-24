@@ -1,18 +1,19 @@
-// Saving and loading: cash, mission progress, stats and the player's spot, kept in
-// localStorage (this browser only). Saving never blocks play: a failed write is
-// swallowed and the game simply keeps going.
+// Palmera Bay — finishing pass 2026-11-24
+// Saving and loading with localStorage (this browser only): cash, mission progress
+// and the statistics. A failed write is swallowed so play never stops; the game just
+// carries on without a save.
 import { SAVE_KEY, BEST_KEY } from './config.js';
 
-export function saveGame(s) {
+export function saveGame(state) {
   try {
     const data = {
-      cash: s.player.cash,
-      missionIndex: s.missions.index,
-      missionsDone: s.missions.done,
-      kills: s.stats.kills,
-      carsStolen: s.stats.carsStolen,
-      x: s.player.inCar ? s.player.car.x : s.player.x,
-      z: s.player.inCar ? s.player.car.z : s.player.z,
+      cash: state.player.cash,
+      missionIndex: state.missions.index,
+      missionsDone: state.missions.done,
+      kills: state.stats.kills,
+      carsStolen: state.stats.carsStolen,
+      x: state.player.inCar ? state.player.car.x : state.player.x,
+      z: state.player.inCar ? state.player.car.z : state.player.z,
       time: Date.now(),
     };
     window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -25,8 +26,7 @@ export function saveGame(s) {
 export function loadGame() {
   try {
     const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }

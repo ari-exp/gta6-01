@@ -1,7 +1,9 @@
-// Traffic and pedestrians: the living city. Traffic cars drive the road grid from
-// intersection to intersection; pedestrians walk the sidewalks and flee from
-// gunshots and from cars coming at them. Both are plain state for render.js.
-import { CAR, ROADS, CITY } from './config.js';
+// Palmera Bay — finishing pass 2026-11-24
+// Traffic and pedestrians: the living city. Fourteen AI cars drive the road grid from
+// one intersection to the next; twenty-four pedestrians walk the sidewalks and flee
+// from a gunshot or from a car coming at them. Both are plain state that render.js
+// turns into meshes.
+import { ROADS, CITY } from './config.js';
 import { createCar } from './vehicles.js';
 
 function randomRoute(random) {
@@ -28,20 +30,21 @@ export function createTraffic(random) {
     car.speed = 8 + random() * 4;
     cars.push(car);
   }
-  const peds = [];
+
   const shirtColors = [0xd94f3d, 0x4f8ef7, 0x7ddc7d, 0xf2c94c, 0xc98ab8, 0x8a6fd9, 0xe8e8e8, 0x3a3f46];
+  const peds = [];
   for (let i = 0; i < 24; i += 1) {
     const road = ROADS[Math.floor(random() * ROADS.length)];
     const along = -320 + random() * 640;
-    const horiz = random() < 0.5;
+    const horizontal = random() < 0.5;
     peds.push({
       id: i,
-      x: horiz ? along : road + 9,
-      z: horiz ? road + 9 : along,
+      x: horizontal ? along : road + 9,
+      z: horizontal ? road + 9 : along,
       angle: random() * Math.PI * 2,
       speed: 1.2 + random() * 0.9,
       color: shirtColors[i % shirtColors.length],
-      state: 'walk', // 'walk' | 'flee' | 'down'
+      state: 'walk',       // 'walk' | 'flee' | 'down'
       fleeT: 0,
       wanderT: 2 + random() * 4,
     });
@@ -49,8 +52,8 @@ export function createTraffic(random) {
   return { cars, peds };
 }
 
+// `danger` is {x, z, radius} — a gunshot or a speeding car. Pedestrians inside it flee.
 export function stepTraffic(traffic, dt, city, danger) {
-  // danger: {x, z, radius} — a gunshot or a speeding car; peds inside it flee.
   for (const car of traffic.cars) {
     const target = car.route[car.routeIdx];
     if (!target) continue;
@@ -73,6 +76,7 @@ export function stepTraffic(traffic, dt, city, danger) {
     car.x += Math.sin(car.angle) * car.speed * dt;
     car.z += Math.cos(car.angle) * car.speed * dt;
   }
+
   for (const ped of traffic.peds) {
     if (ped.state === 'down') continue;
     if (danger && Math.hypot(ped.x - danger.x, ped.z - danger.z) < danger.radius) {
@@ -98,14 +102,12 @@ export function stepTraffic(traffic, dt, city, danger) {
       nx = ped.x;
       nz = ped.z;
     }
-    nx = Math.max(-CITY.half, Math.min(CITY.half, nx));
-    nz = Math.max(-CITY.half, Math.min(CITY.half, nz));
-    ped.x = nx;
-    ped.z = nz;
+    ped.x = Math.max(-CITY.half, Math.min(CITY.half, nx));
+    ped.z = Math.max(-CITY.half, Math.min(CITY.half, nz));
   }
 }
 
-// A traffic car or a pedestrian hit by the player's car: returns what was hit.
+// A traffic car or pedestrian hit by the player's car: returns what was hit, or null.
 export function checkRunOver(traffic, x, z, radius) {
   for (const ped of traffic.peds) {
     if (ped.state === 'down') continue;

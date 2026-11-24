@@ -1,17 +1,18 @@
+// Palmera Bay — finishing pass 2026-11-24
 // Boot and the one loop: input is read every frame, the world advances in fixed
-// 1/60 s steps, the renderer paints what is there. Screens: title, play, paused,
-// mission briefing, busted, wasted and win. ?seed=N fixes the city; ?shot=start|
-// play|drive|end (with &seed=N) stages that scene instead of running the loop and
-// sets window.__shotReady for a screenshot. ?autostart=1 skips the title screen.
-import { STEP, BEST_KEY, PLACES, COMBAT } from './config.js';
+// 1/60 s steps, the renderer paints whatever is there. Screens are title, play,
+// paused, mission briefing, busted, wasted and win. ?seed=N fixes the city;
+// ?shot=start|play|drive|end (with &seed=N) stages that scene instead of running the
+// loop and sets window.__shotReady; ?autostart=1 skips the title screen (for tests).
+import { STEP, PLACES, COMBAT } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld } from './world.js';
 import { createRenderer } from './render.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_ENTER, ACTION_RELOAD, ACTION_PUNCH, ACTION_HORN, ACTION_MUTE, createInput } from './input.js';
+import { createInput, ACTION_CONFIRM, ACTION_PAUSE, ACTION_ENTER, ACTION_RELOAD, ACTION_PUNCH, ACTION_HORN, ACTION_MUTE } from './input.js';
 import { createAudio } from './audio.js';
 import { createHud } from './hud.js';
 import { saveGame, loadGame, hasSave, readBest, saveBest } from './save.js';
-import { stageShot } from './shots.js';
+import { stageShot, warmUpShot } from './shots.js';
 
 const MAX_FRAME = 0.25;
 
@@ -22,11 +23,11 @@ const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() 
 const autostart = params.get('autostart') === '1';
 
 const canvas = document.getElementById('game');
-const status = document.getElementById('status');
+const statusEl = document.getElementById('status');
 const audio = createAudio();
 const random = createRandom(seed);
 const world = createWorld(random, audio);
-window.__palmera = world.state; // debug/test hook: the live game state.
+window.__palmera = world.state; // debug / test hook: the live game state
 const renderer = createRenderer(canvas, world.city);
 const hud = createHud();
 const input = createInput(canvas);
@@ -34,11 +35,8 @@ const input = createInput(canvas);
 let screen = 'title';
 let best = readBest();
 let lastMessage = '';
-let lastToastAt = 0;
 
-function announce(message) {
-  status.textContent = message;
-}
+function announce(message) { statusEl.textContent = message; }
 
 function refreshTitleButtons() {
   const cont = document.getElementById('btn-continue');
@@ -67,14 +65,8 @@ function startPlay(fromSave) {
 
 function showMissionBrief() {
   const idx = world.state.missions.index;
-  if (idx >= 5) {
-    hud.toast('All missions complete — free roam Palmera Bay!', 4);
-    return;
-  }
-  if (world.state.missions.active) {
-    hud.toast('Mission already active — follow the yellow marker.', 3);
-    return;
-  }
+  if (idx >= 5) { hud.toast('All missions complete — free roam Palmera Bay!', 4); return; }
+  if (world.state.missions.active) { hud.toast('Mission already active — follow the yellow marker.', 3); return; }
   const started = world.startMission(idx);
   if (!started) return;
   screen = 'mission';
@@ -87,31 +79,24 @@ function showMissionBrief() {
 }
 
 function endRun(kind) {
-  // kind: 'busted' | 'wasted' | 'win'
   if (kind === 'win') {
     screen = 'win';
     hud.show('win');
     document.getElementById('win-stats').textContent =
       `Cash $${world.state.player.cash.toLocaleString('en-US')} · Missions ${world.state.stats.missionsDone}/5 · Cars stolen ${world.state.stats.carsStolen} · Takedowns ${world.state.stats.kills}`;
-    if (world.state.player.cash > best) {
-      best = world.state.player.cash;
-      saveBest(best);
-    }
+    if (world.state.player.cash > best) { best = world.state.player.cash; saveBest(best); }
     announce('You won. The Big Score is yours.');
     return;
   }
   screen = 'over';
   hud.show('over');
   document.getElementById('over-title').textContent = kind === 'busted' ? 'BUSTED' : 'WASTED';
-  document.getElementById('over-text').textContent =
-    kind === 'busted'
-      ? 'The PBPD caught you. You lose $200 bail and wake up at the apartment.'
-      : 'Dario went down. The crew drags you back to the apartment — minus $200.';
+  document.getElementById('over-text').textContent = kind === 'busted'
+    ? 'The PBPD caught you. You lose $200 bail and wake up back at the apartment.'
+    : 'Dario went down. The crew drags you back to the apartment — minus $200.';
   world.state.player.cash = Math.max(0, world.state.player.cash - 200);
-  if (world.state.player.cash > best) {
-    best = world.state.player.cash;
-    saveBest(best);
-  }
+  if (world.state.player.cash > best) { best = world.state.player.cash; saveBest(best); }
+  if (audio) audio.busted();
   announce(kind === 'busted' ? 'Busted.' : 'Wasted.');
 }
 
@@ -121,17 +106,13 @@ function restart() {
 }
 
 // GTA-style respawn after Busted / Wasted: back at the apartment, health restored,
-// heat cleared, cash already docked by endRun — and the active mission restarts
-// fresh instead of wiping the whole story.
+// heat cleared, and the active mission restarted — but story progress is kept and
+// the page never reloads.
 function respawn() {
   const s = world.state;
   const p = s.player;
   s.busted = false;
-  if (p.inCar) {
-    p.car.driver = 'none';
-    p.car = null;
-    p.inCar = false;
-  }
+  if (p.inCar) { p.car.driver = 'none'; p.car = null; p.inCar = false; }
   p.x = PLACES.spawn.x;
   p.z = PLACES.spawn.z;
   p.y = 0;
@@ -153,27 +134,15 @@ function respawn() {
   }
   screen = 'play';
   hud.show('play');
-  hud.toast('Back on your feet at the apartment. The job is still on — press M if you need the brief again.', 4);
+  hud.toast('Back on your feet at the apartment. The job is still on — press M for the brief.', 4);
   announce('Back on your feet.');
 }
 
+// ?shot=… — stage one of the four scenes, warm it up, paint twice, then signal the
+// screenshot tool. All content comes from the game rules above.
 function runShot(name) {
-  const scene = stageShot(name, world, input);
-  // Let traffic settle for a few seconds so the frame is alive, then paint.
-  const fakeInput = {
-    takeDrag: () => ({ x: 0, y: 0 }),
-    takeActions: () => 0,
-    takeClick: () => false,
-    move: () => ({ x: 0, y: 1 }),
-    held: () => false,
-    running: () => false,
-    jumping: () => false,
-  };
-  if (name === 'drive') {
-    for (let i = 0; i < 60; i += 1) world.step(STEP, fakeInput);
-  } else if (name === 'play') {
-    for (let i = 0; i < 120; i += 1) world.step(STEP, { ...fakeInput, move: () => ({ x: 0, y: 0 }) });
-  }
+  const scene = stageShot(name, world);
+  warmUpShot(name, world);
   hud.update(world.state);
   if (scene.screen === 'title') {
     hud.show('title');
@@ -203,22 +172,10 @@ function runGame() {
   hud.show('title');
   announce('Palmera Bay. Press Space or click to start.');
 
-  document.getElementById('btn-start').addEventListener('click', () => {
-    audio.unlock();
-    startPlay(false);
-  });
-  document.getElementById('btn-continue').addEventListener('click', () => {
-    audio.unlock();
-    startPlay(true);
-  });
-  document.getElementById('btn-mission').addEventListener('click', () => {
-    audio.unlock();
-    showMissionBrief();
-  });
-  document.getElementById('btn-resume').addEventListener('click', () => {
-    screen = 'play';
-    hud.show('play');
-  });
+  document.getElementById('btn-start').addEventListener('click', () => { audio.unlock(); startPlay(false); });
+  document.getElementById('btn-continue').addEventListener('click', () => { audio.unlock(); startPlay(true); });
+  document.getElementById('btn-mission').addEventListener('click', () => { audio.unlock(); showMissionBrief(); });
+  document.getElementById('btn-resume').addEventListener('click', () => { screen = 'play'; hud.show('play'); });
   document.getElementById('btn-save').addEventListener('click', () => {
     const ok = saveGame(world.state);
     hud.toast(ok ? 'Game saved.' : 'Save failed (storage unavailable).', 2.5);
@@ -229,59 +186,41 @@ function runGame() {
     refreshTitleButtons();
     hud.show('title');
   });
-  document.getElementById('btn-accept').addEventListener('click', () => {
-    screen = 'play';
-    hud.show('play');
-    audio.unlock();
-  });
-  document.getElementById('btn-retry').addEventListener('click', respawn);
-  document.getElementById('btn-title').addEventListener('click', () => {
-    screen = 'title';
-    refreshTitleButtons();
-    hud.show('title');
-  });
+  document.getElementById('btn-accept').addEventListener('click', () => { screen = 'play'; hud.show('play'); audio.unlock(); });
+  document.getElementById('btn-again').addEventListener('click', respawn);
+  document.getElementById('btn-title').addEventListener('click', () => { screen = 'title'; refreshTitleButtons(); hud.show('title'); });
   document.getElementById('btn-win-again').addEventListener('click', restart);
 
-  // Keyboard shortcuts on the overlays.
+  // M opens the next mission while playing.
   window.addEventListener('keydown', (event) => {
-    if (event.code === 'KeyM' && screen === 'play' && !world.state.missions.active && world.state.missions.index < 5) {
-      showMissionBrief();
-    }
+    if (event.code === 'KeyM' && screen === 'play' && !world.state.missions.active && world.state.missions.index < 5) showMissionBrief();
   });
 
   function frame(now) {
     requestAnimationFrame(frame);
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
+
     const actions = input.takeActions();
     if (actions & ACTION_CONFIRM && (screen === 'title' || screen === 'over' || screen === 'win')) {
-      if (screen === 'title') {
-        audio.unlock();
-        startPlay(false);
-      } else restart();
+      if (screen === 'title') { audio.unlock(); startPlay(false); }
+      else respawn();
     } else if (actions & ACTION_PAUSE) {
-      if (screen === 'play') {
-        screen = 'paused';
-        hud.show('pause');
-        announce('Paused.');
-      } else if (screen === 'paused') {
-        screen = 'play';
-        hud.show('play');
-      }
+      if (screen === 'play') { screen = 'paused'; hud.show('pause'); announce('Paused.'); }
+      else if (screen === 'paused') { screen = 'play'; hud.show('play'); }
     } else if (actions & ACTION_CONFIRM && screen === 'mission') {
       screen = 'play';
       hud.show('play');
     }
-    // Clicking the title's Start button is a DOM click; canvas clicks start too.
-    // Hand the world-only actions back so the world step still sees E/R/F/H/N —
-    // but NOT confirm/pause, or the pause screen would toggle every frame.
-    input.pushActions(actions & (ACTION_ENTER | ACTION_RELOAD | ACTION_PUNCH | ACTION_HORN | ACTION_MUTE));
+    // Hand only the world actions back — NOT confirm/pause, or the pause screen would
+    // toggle every frame and the overlay would flicker.
+    input.putBack(actions & (ACTION_ENTER | ACTION_RELOAD | ACTION_PUNCH | ACTION_HORN | ACTION_MUTE));
+
     if (screen === 'play') {
       while (accumulator >= STEP) {
         world.step(STEP, input);
         accumulator -= STEP;
       }
-      // Toasts from the world (mission briefs, pickups, crimes).
       const msg = world.state.missions.message;
       if (msg && msg !== lastMessage && world.state.missions.messageT > 0) {
         lastMessage = msg;
@@ -294,7 +233,7 @@ function runGame() {
     } else {
       accumulator = 0;
       if (screen === 'title') {
-        // Slow cinematic orbit behind the title screen.
+        // A slow cinematic pan behind the title screen.
         world.state.camera.yaw += STEP * 0.05;
         world.state.time += STEP;
       }
