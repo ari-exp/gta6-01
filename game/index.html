@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palmera Bay — An Open-World Crime Story</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1420; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #f5f1e8; display: none; z-index: 5; }
+  .panel { background: rgba(10, 14, 22, 0.62); border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 8px 12px; }
+  #topleft { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 6px; }
+  #cash { font-size: 26px; font-weight: 800; color: #7ddc7d; }
+  #healthbar-wrap { width: 180px; height: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; overflow: hidden; }
+  #healthbar { height: 100%; background: #7ddc7d; width: 100%; }
+  #health { font-size: 14px; }
+  #topright { position: absolute; top: 14px; right: 14px; text-align: right; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  #stars { font-size: 26px; letter-spacing: 3px; }
+  #clock { font-size: 14px; color: #cfc8b8; }
+  #ammo { font-size: 16px; }
+  #objective { position: absolute; bottom: 170px; left: 50%; transform: translateX(-50%); font-size: 15px; max-width: 70%; text-align: center; }
+  #speed { position: absolute; bottom: 14px; right: 14px; font-size: 20px; font-weight: 700; }
+  #minimap { position: absolute; bottom: 14px; left: 14px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; background: #20262e; }
+  #toast { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); font-size: 17px; background: rgba(10,14,22,0.75); padding: 8px 16px; border-radius: 8px; transition: opacity 0.4s; max-width: 80%; text-align: center; }
+  #crosshair { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; display: none; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; }
+  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #crosshair::after { top: 8px; left: 0; width: 18px; height: 2px; }
+  #damage { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,0,0,0.55) 100%); transition: opacity 0.3s; z-index: 4; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #f5f1e8; background: linear-gradient(180deg, rgba(8,12,20,0.55) 0%, rgba(8,12,20,0.78) 100%); z-index: 10; padding: 20px; }
+  .screen h1 { font-size: 64px; margin: 0; letter-spacing: 2px; color: #ffb347; text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
+  .screen h1 .bay { color: #7dd0ff; }
+  .screen h2 { font-size: 40px; margin: 0 0 10px; }
+  .screen p { font-size: 17px; line-height: 1.55; max-width: 640px; color: #e8e2d4; }
+  .screen .sub { color: #ffb347; font-weight: 700; }
+  .btn { pointer-events: auto; cursor: pointer; margin: 6px; padding: 12px 26px; font-size: 17px; font-weight: 700; color: #14161a; background: #ffb347; border: none; border-radius: 10px; }
+  .btn:hover { background: #ffc86b; }
+  .btn.ghost { background: transparent; color: #f5f1e8; border: 2px solid rgba(255,255,255,0.5); }
+  .keys { font-size: 14px; color: #cfc8b8; line-height: 1.9; margin-top: 14px; }
+  .keys b { color: #fff; background: rgba(255,255,255,0.14); border-radius: 4px; padding: 1px 7px; }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Palmera Bay: an open-world crime game. Walk the city, steal cars, outrun the police, and run five story missions."></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+<div id="damage"></div>
+
+<div id="hud">
+  <div id="topleft">
+    <div class="panel"><span id="cash">$150</span><div id="healthbar-wrap"><div id="healthbar"></div></div><span id="health">100</span> HP</div>
+  </div>
+  <div id="topright">
+    <div class="panel"><div id="stars">☆☆☆☆☆</div><div id="clock">09:00 Palmera Bay</div><div id="ammo">◉ 12 / ∞</div></div>
+  </div>
+  <canvas id="minimap" width="190" height="190"></canvas>
+  <div id="objective" class="panel"></div>
+  <div id="speed" class="panel"></div>
+  <div id="toast" style="opacity:0"></div>
+  <div id="crosshair"></div>
+</div>
+
+<div class="screen" id="screen-title">
+  <h1>PALMERA <span class="bay">BAY</span></h1>
+  <p class="sub">An open-world crime story — 100% original. A city of your own: sun, sea, fast cars and five jobs.</p>
+  <p>Dario Cruz is back in Palmera Bay with $150 and a phone call from Mara Solis. Steal cars, outrun the
+  Palmera Bay Police Department, run five story missions — and pull off the Big Score at the Palmera Bank.</p>
+  <div>
+    <button class="btn" id="btn-start">▶ Start story</button>
+    <button class="btn ghost" id="btn-continue">Continue (saved game)</button>
+    <button class="btn ghost" id="btn-mission">☎ Missions</button>
+  </div>
+  <p id="title-best"></p>
+  <div class="keys">
+    <b>W A S D</b> move / drive &nbsp; <b>Shift</b> run &nbsp; <b>Mouse drag</b> camera &nbsp; <b>Click</b> shoot &nbsp; <b>E</b> steal / enter car &nbsp; <b>F</b> punch &nbsp; <b>R</b> reload &nbsp; <b>M</b> mission &nbsp; <b>Space</b> jump / handbrake &nbsp; <b>N</b> mute &nbsp; <b>P</b> pause
+  </div>
+</div>
+
+<div class="screen" id="screen-pause">
+  <h2>Paused</h2>
+  <p>Palmera Bay waits for you.</p>
+  <div>
+    <button class="btn" id="btn-resume">Resume</button>
+    <button class="btn ghost" id="btn-save">Save game</button>
+    <button class="btn ghost" id="btn-quit">Save &amp; quit to title</button>
+  </div>
+</div>
+
+<div class="screen" id="screen-mission">
+  <h2 id="mission-title">Mission</h2>
+  <p class="sub" id="mission-giver"></p>
+  <p id="mission-brief"></p>
+  <p id="mission-objective"></p>
+  <div><button class="btn" id="btn-accept">Accept job</button></div>
+</div>
+
+<div class="screen" id="screen-over">
+  <h2 id="over-title">BUSTED</h2>
+  <p id="over-text"></p>
+  <div>
+    <button class="btn" id="btn-retry">Try again</button>
+    <button class="btn ghost" id="btn-title">Title screen</button>
+  </div>
+</div>
+
+<div class="screen" id="screen-win">
+  <h2>🏆 THE BIG SCORE</h2>
+  <p>You robbed the Palmera Bank, outran the whole PBPD, and made it to the hideout.
+  Palmera Bay is yours, Dario — free roam continues, and Mara already has the next job.</p>
+  <p id="win-stats"></p>
+  <div>
+    <button class="btn" id="btn-win-again">Play again</button>
+  </div>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
